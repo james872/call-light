@@ -1,0 +1,14 @@
+[project]
+name = "call-light"
+version = "0.1.0"
+description = "Distributed Raspberry Pi Call Light System"
+readme = "README.md"
+requires-python = ">=3.11"
+
+dependencies = [
+    "Flask",
+    "gpiozero",
+    "PyYAML",
+    "pyzmq",
+    "zeroconf"
+]
