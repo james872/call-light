@@ -19,13 +19,15 @@ Each node automatically discovers every other node on the local network and comm
 - Peer-to-peer architecture
 - No central server
 - Automatic node discovery using mDNS (Zeroconf)
-- UUID-based messaging
-- Automatic duplicate suppression
-- Recursive message retransmission
+- Full-mesh messaging (every station talks directly to every peer)
+- Versioned call state with automatic convergence via heartbeats
+- Protocol version checking (incompatible peers are flagged, not silently broken)
 - GPIO pushbutton input
 - GPIO LED output
-- Lightweight Flask web interface
-- Event logging
+- Flask web interface with live status, peer health, and a virtual call button
+- Per-station settings from the web UI: station name (synced to the machine hostname), flash rate, LED brightness
+- Time-stamped event log of calls and clears, including originating station
+- Per-station update button in the web UI (pulls the latest GitHub release)
 - Heartbeats
 - Automatic installation
 - systemd service
@@ -92,6 +94,24 @@ Deployment is designed for Raspberry Pi Imager.
 3. Configure the first-boot script.
 4. Boot the Pi.
 5. Installation completes automatically.
+
+The first-boot script clones this repository, checks out the newest
+release tag, installs dependencies, generates the station's identity,
+and installs the systemd service. Internet access is required during
+installation only.
+
+---
+
+## Updates
+
+Each station's web UI shows when a newer release is available
+(internet permitting). The Update button updates that station only:
+fetch, check out the newest release tag, reinstall dependencies,
+restart the service.
+
+Stations running an older protocol version appear on their peers as
+"incompatible — update required", so partial upgrades are visible
+rather than silently broken.
 
 ---
 
