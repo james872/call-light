@@ -4,34 +4,85 @@
 <head>
 
     <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
 
-    <title>Call Light</title>
+    <title>Call Light - {{ status.display_name }}</title>
 
     <style>
 
         body {
             font-family: Arial, Helvetica, sans-serif;
             background: #f4f4f4;
-            margin: 40px;
+            margin: 24px;
+            max-width: 640px;
         }
 
         h1 {
             color: #222;
         }
 
+        h2 {
+            color: #444;
+            font-size: 1.05em;
+            margin-top: 28px;
+        }
+
         table {
             border-collapse: collapse;
             background: white;
+            width: 100%;
         }
 
-        td {
-            padding: 10px 16px;
+        td, th {
+            padding: 8px 12px;
             border: 1px solid #ddd;
+            text-align: left;
         }
 
-        td:first-child {
+        th {
+            background: #fafafa;
+        }
+
+        #press {
+            display: block;
+            width: 100%;
+            padding: 36px 0;
+            margin: 16px 0;
+            font-size: 1.6em;
             font-weight: bold;
-            width: 180px;
+            color: white;
+            background: #2e7d32;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+        }
+
+        #press.calling {
+            background: #c62828;
+            animation: flash 0.5s step-start infinite;
+        }
+
+        @keyframes flash {
+            50% { background: #7f1313; }
+        }
+
+        .online       { color: #2e7d32; font-weight: bold; }
+        .offline      { color: #999; }
+        .incompatible { color: #e65100; font-weight: bold; }
+
+        #events li {
+            margin: 4px 0;
+        }
+
+        #update-status {
+            margin-left: 8px;
+            color: #666;
+        }
+
+        footer {
+            margin-top: 28px;
+            color: #999;
+            font-size: 0.85em;
         }
 
     </style>
@@ -40,41 +91,298 @@
 
 <body>
 
-<h1>Call Light</h1>
+<h1>{{ status.display_name }}</h1>
+
+<button id="press">&hellip;</button>
 
 <table>
 
 <tr>
-<td>Version</td>
-<td>{{ status.version }}</td>
-</tr>
-
-<tr>
-<td>Hostname</td>
-<td>{{ status.hostname }}</td>
-</tr>
-
-<tr>
 <td>State</td>
-<td>{{ status.state }}</td>
+<td id="state">{{ status.state }}</td>
 </tr>
 
 <tr>
-<td>Running</td>
-<td>{{ status.running }}</td>
-</tr>
-
-<tr>
-<td>Peers</td>
-<td>{{ status.peer_count }}</td>
+<td>Peers online</td>
+<td id="peers-online">{{ status.online_peer_count }}</td>
 </tr>
 
 <tr>
 <td>Uptime</td>
-<td>{{ status.uptime }} seconds</td>
+<td id="uptime">{{ status.uptime }} s</td>
 </tr>
 
 </table>
+
+<h2>Stations</h2>
+
+<table>
+<thead>
+<tr><th>Station</th><th>Status</th><th>Last seen</th></tr>
+</thead>
+<tbody id="peers">
+<tr><td colspan="3">Discovering&hellip;</td></tr>
+</tbody>
+</table>
+
+<h2>Event log</h2>
+
+<ul id="events">
+<li>No events yet.</li>
+</ul>
+
+<h2>Settings</h2>
+
+<table>
+
+<tr>
+<td>Station name</td>
+<td>
+<input id="set-name" type="text" maxlength="32" size="18">
+</td>
+</tr>
+
+<tr>
+<td>Flash rate</td>
+<td>
+<input id="set-rate" type="range" min="50" max="2000" step="50">
+<span id="set-rate-value"></span> ms
+</td>
+</tr>
+
+<tr>
+<td>Brightness</td>
+<td>
+<input id="set-brightness" type="range" min="5" max="100" step="5">
+<span id="set-brightness-value"></span>%
+</td>
+</tr>
+
+<tr>
+<td></td>
+<td>
+<button id="settings-save">Save</button>
+<span id="settings-status"></span>
+</td>
+</tr>
+
+</table>
+
+<h2>Software</h2>
+
+<p>
+Version {{ status.version }}
+(protocol {{ status.protocol_version }})
+<button id="update-check">Check for updates</button>
+<button id="update-apply" hidden>Update</button>
+<span id="update-status"></span>
+</p>
+
+<footer>
+Station ID {{ status.station_id }} &middot; {{ status.hostname }}
+</footer>
+
+<script>
+
+    const pressButton = document.getElementById("press");
+
+    pressButton.addEventListener("click", async () => {
+        await fetch("/api/press", { method: "POST" });
+        refresh();
+    });
+
+    function renderState(state) {
+        pressButton.textContent =
+            state === "CALLING" ? "CLEAR CALL" : "CALL";
+        pressButton.classList.toggle("calling", state === "CALLING");
+        document.getElementById("state").textContent = state;
+    }
+
+    function renderName(name) {
+        document.querySelector("h1").textContent = name;
+        document.title = "Call Light - " + name;
+    }
+
+    function renderPeers(peers) {
+        const body = document.getElementById("peers");
+
+        if (peers.length === 0) {
+            body.innerHTML =
+                "<tr><td colspan='3'>No stations discovered.</td></tr>";
+            return;
+        }
+
+        body.innerHTML = peers.map(peer => {
+            const seen =
+                peer.last_seen_seconds === null
+                    ? "never"
+                    : peer.last_seen_seconds < 2
+                        ? "now"
+                        : peer.last_seen_seconds + "s ago";
+
+            const label =
+                peer.status === "incompatible"
+                    ? "incompatible &mdash; update required"
+                    : peer.status;
+
+            return "<tr>"
+                + "<td>" + peer.display_name + "</td>"
+                + "<td class='" + peer.status + "'>" + label + "</td>"
+                + "<td>" + seen + "</td>"
+                + "</tr>";
+        }).join("");
+    }
+
+    function renderEvents(events) {
+        const list = document.getElementById("events");
+
+        if (events.length === 0) {
+            list.innerHTML = "<li>No events yet.</li>";
+            return;
+        }
+
+        list.innerHTML = events.slice(0, 50).map(event => {
+            const time = new Date(event.timestamp * 1000)
+                .toLocaleTimeString();
+
+            const label =
+                event.type === "CALL" ? "Call from " : "Clear from ";
+
+            const note = event.note ? " (" + event.note + ")" : "";
+
+            return "<li>" + time + " &mdash; "
+                + label + event.origin_name + note + "</li>";
+        }).join("");
+    }
+
+    async function refresh() {
+        try {
+            const response = await fetch("/api/overview");
+            const overview = await response.json();
+
+            renderState(overview.status.state);
+            renderName(overview.status.display_name);
+            renderPeers(overview.peers);
+            renderEvents(overview.events);
+
+            document.getElementById("peers-online").textContent =
+                overview.status.online_peer_count;
+
+            document.getElementById("uptime").textContent =
+                overview.status.uptime + " s";
+        } catch (error) {
+            // Station restarting; keep polling.
+        }
+    }
+
+    refresh();
+    setInterval(refresh, 1000);
+
+    //
+    // Settings
+    //
+
+    const setName = document.getElementById("set-name");
+    const setRate = document.getElementById("set-rate");
+    const setBrightness = document.getElementById("set-brightness");
+    const settingsStatus = document.getElementById("settings-status");
+
+    function showSettings(settings) {
+        setName.value = settings.display_name;
+        setRate.value = settings.flash_rate_ms;
+        setBrightness.value = settings.led_brightness;
+        syncSliderLabels();
+
+        //
+        // The web button flashes at the station's flash rate.
+        //
+
+        pressButton.style.animationDuration =
+            (settings.flash_rate_ms * 2) + "ms";
+    }
+
+    function syncSliderLabels() {
+        document.getElementById("set-rate-value").textContent =
+            setRate.value;
+        document.getElementById("set-brightness-value").textContent =
+            setBrightness.value;
+    }
+
+    setRate.addEventListener("input", syncSliderLabels);
+    setBrightness.addEventListener("input", syncSliderLabels);
+
+    async function loadSettings() {
+        const response = await fetch("/api/settings");
+        showSettings(await response.json());
+    }
+
+    document.getElementById("settings-save")
+        .addEventListener("click", async () => {
+
+        settingsStatus.textContent = "Saving…";
+
+        const response = await fetch("/api/settings", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                display_name: setName.value,
+                flash_rate_ms: Number(setRate.value),
+                led_brightness: Number(setBrightness.value),
+            }),
+        });
+
+        const result = await response.json();
+
+        showSettings(result.settings);
+
+        settingsStatus.textContent =
+            Object.keys(result.changed).length > 0
+                ? "Saved."
+                : "No changes.";
+
+        setTimeout(() => { settingsStatus.textContent = ""; }, 3000);
+    });
+
+    loadSettings();
+
+    //
+    // Updates
+    //
+
+    const updateStatus = document.getElementById("update-status");
+    const updateApply = document.getElementById("update-apply");
+
+    document.getElementById("update-check")
+        .addEventListener("click", async () => {
+
+        updateStatus.textContent = "Checking…";
+        updateApply.hidden = true;
+
+        const response = await fetch("/api/update/check");
+        const result = await response.json();
+
+        if (result.error) {
+            updateStatus.textContent = result.error;
+        } else if (result.update_available) {
+            updateStatus.textContent =
+                result.latest + " is available.";
+            updateApply.textContent = "Update to " + result.latest;
+            updateApply.hidden = false;
+        } else {
+            updateStatus.textContent = "Up to date.";
+        }
+    });
+
+    updateApply.addEventListener("click", async () => {
+
+        updateApply.hidden = true;
+        updateStatus.textContent =
+            "Updating… this station will restart.";
+
+        await fetch("/api/update", { method: "POST" });
+    });
+
+</script>
 
 </body>
 

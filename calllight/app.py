@@ -5,12 +5,24 @@ Application entry point.
 from __future__ import annotations
 
 from .application import CallLight
+from .discovery import Discovery
+from .gpio import Gpio
+from .messaging import Messaging
 from .webui import create_web_app
 
 
 def main() -> None:
 
     calllight = CallLight()
+
+    messaging = Messaging(calllight)
+    messaging.start()
+
+    discovery = Discovery(calllight, messaging)
+    discovery.start()
+
+    gpio = Gpio(calllight)
+    gpio.start()
 
     web = create_web_app(calllight)
 
@@ -23,6 +35,7 @@ def main() -> None:
         host="0.0.0.0",
         port=calllight.config.http_port,
         debug=False,
+        threaded=True,
     )
 
 

@@ -1,11 +1,12 @@
-hostname: call-drums
 display_name: Drums
 
 button_gpio: 17
 led_gpio: 27
 
 http_port: 8080
+messaging_port: 5555
 
 flash_rate_ms: 250
+led_brightness: 100
 
 debug: true
