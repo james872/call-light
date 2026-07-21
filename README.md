@@ -100,6 +100,28 @@ release tag, installs dependencies, generates the station's identity,
 and installs the systemd service. Internet access is required during
 installation only.
 
+### Install on an already-booted Raspberry Pi
+
+Connect the Pi to WiFi, then run the following command in its terminal:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/james872/call-light/main/deploy/install-pi.sh | sudo bash
+```
+
+The installer is safe to run again. It installs Git and Python, clones or
+updates `/opt/call-light`, creates its Python environment, preserves an
+existing station configuration, and starts the `call-light` systemd service.
+It deploys the newest release tag; while there are no release tags it deploys
+`main` so the project can be tested. To explicitly test a branch, tag, or
+commit, run `sudo CALL_LIGHT_REF=your-ref ./deploy/install-pi.sh`.
+
+If you have already cloned the repository, run `sudo ./deploy/install-pi.sh`
+from that checkout instead.
+
+After it finishes, open `http://<pi-ip-address>:8080` from a device on the
+same WiFi. Check the service with `systemctl status call-light.service` and
+view its live logs with `journalctl -u call-light.service -f`.
+
 ---
 
 ## Updates
