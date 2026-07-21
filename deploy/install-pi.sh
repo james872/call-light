@@ -20,6 +20,43 @@ if [ "${EUID}" -ne 0 ]; then
     exec sudo --preserve-env=CALL_LIGHT_REPO,CALL_LIGHT_REF,CALL_LIGHT_TARGET "$0" "$@"
 fi
 
+set_default_hostname() {
+    local interface="wlan0"
+    local mac_file="/sys/class/net/${interface}/address"
+    local mac
+    local suffix
+    local hostname
+
+    if [ ! -r "${mac_file}" ]; then
+        echo "Call Light: Wi-Fi interface ${interface} was not found." >&2
+        exit 1
+    fi
+
+    mac="$(tr -d ':' < "${mac_file}")"
+
+    if [[ ! "${mac}" =~ ^[[:xdigit:]]{12}$ ]]; then
+        echo "Call Light: invalid MAC address for ${interface}: ${mac}" >&2
+        exit 1
+    fi
+
+    suffix="${mac: -6}"
+    hostname="call-${suffix,,}"
+
+    # The marker prevents a re-run from overwriting a name chosen in the UI.
+    if [ -e /etc/call-light/initial-hostname ]; then
+        return
+    fi
+
+    echo "Call Light: setting initial hostname to ${hostname}"
+
+    if ! hostnamectl set-hostname "${hostname}"; then
+        printf '%s\n' "${hostname}" > /etc/hostname
+        hostname "${hostname}"
+    fi
+
+    printf '%s\n' "${hostname}" > /etc/call-light/initial-hostname
+}
+
 echo "Call Light: installing system packages"
 apt-get update
 apt-get install -y git python3-venv python3-pip
@@ -51,10 +88,13 @@ git -C "${TARGET}" checkout --quiet --force "${REF}"
 
 echo "Call Light: installing Python dependencies"
 python3 -m venv "${TARGET}/venv"
-"${TARGET}/venv/bin/pip" install --upgrade pip --quiet
-"${TARGET}/venv/bin/pip" install -r "${TARGET}/requirements.txt" --quiet
+"${TARGET}/venv/bin/pip" install --upgrade pip --retries 10 --timeout 60
+"${TARGET}/venv/bin/pip" install -r "${TARGET}/requirements.txt" --prefer-binary --retries 10 --timeout 60
 
 mkdir -p /etc/call-light
+
+set_default_hostname
+
 if [ ! -f /etc/call-light/config.yaml ]; then
     cp "${TARGET}/config/config.example.yaml" /etc/call-light/config.yaml
 fi

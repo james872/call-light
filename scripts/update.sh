@@ -24,7 +24,7 @@ echo "Updating to ${LATEST}"
 
 git checkout --quiet "${LATEST}"
 
-venv/bin/pip install -r requirements.txt --quiet
+venv/bin/pip install -r requirements.txt --prefer-binary --retries 10 --timeout 60
 
 #
 # Give the HTTP response that triggered us a moment to be

@@ -115,6 +115,11 @@ It deploys the newest release tag; while there are no release tags it deploys
 `main` so the project can be tested. To explicitly test a branch, tag, or
 commit, run `sudo CALL_LIGHT_REF=your-ref ./deploy/install-pi.sh`.
 
+On its first install, a station is given the hostname
+`call-<last-six-hex-digits-of-wlan0-MAC>` (for example,
+`call-123456`). Re-running an installer does not overwrite a hostname that
+was later changed through the web UI.
+
 If you have already cloned the repository, run `sudo ./deploy/install-pi.sh`
 from that checkout instead.
 
