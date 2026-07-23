@@ -96,11 +96,39 @@
             font-size: 0.85em;
         }
 
+        #update-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 10;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+            background: rgba(0, 0, 0, 0.72);
+            color: white;
+            text-align: center;
+        }
+
+        #update-overlay div {
+            max-width: 360px;
+            padding: 28px;
+            border-radius: 10px;
+            background: #222;
+        }
+
     </style>
 
 </head>
 
 <body>
+
+<div id="update-overlay" hidden>
+<div>
+<h2>Update in progress</h2>
+<p>The station is installing the update and will restart.</p>
+<p>This page will refresh when completion is detected.</p>
+</div>
+</div>
 
 <h1>{{ status.display_name }}</h1>
 
@@ -255,10 +283,32 @@ Station ID {{ status.station_id }} &middot; {{ status.hostname }}
     }
 
     function formatUptime(seconds) {
-        if (seconds < 60) return seconds + " s";
-        const minutes = Math.floor(seconds / 60);
-        const remainder = seconds % 60;
-        return minutes + " min" + (remainder ? " " + remainder + " s" : "");
+        return formatDuration(seconds);
+    }
+
+    function formatDuration(seconds) {
+        const units = [
+            [365 * 24 * 60 * 60, "year"],
+            [7 * 24 * 60 * 60, "week"],
+            [24 * 60 * 60, "day"],
+            [60 * 60, "hour"],
+            [60, "min"],
+            [1, "s"],
+        ];
+        const wholeSeconds = Math.max(0, Math.floor(seconds));
+        const firstIndex = units.findIndex(([size]) => wholeSeconds >= size);
+        if (firstIndex === -1) return "0 s";
+        const [firstSize, firstLabel] = units[firstIndex];
+        const firstValue = Math.floor(wholeSeconds / firstSize);
+        const firstText = firstValue + " " + firstLabel
+            + (firstLabel !== "s" && firstLabel !== "min" && firstValue !== 1 ? "s" : "");
+        const remainder = wholeSeconds % firstSize;
+        const next = units[firstIndex + 1];
+        if (!next || remainder < next[0]) return firstText;
+        const nextValue = Math.floor(remainder / next[0]);
+        const nextText = nextValue + " " + next[1]
+            + (next[1] !== "s" && next[1] !== "min" && nextValue !== 1 ? "s" : "");
+        return firstText + " " + nextText;
     }
 
     function renderName(name) {
@@ -276,12 +326,11 @@ Station ID {{ status.station_id }} &middot; {{ status.hostname }}
         }
 
         body.innerHTML = peers.map(peer => {
-            const seen =
-                peer.last_seen_seconds === null
-                    ? "never"
-                    : peer.last_seen_seconds < 2
-                        ? "now"
-                        : peer.last_seen_seconds + "s ago";
+            const seen = peer.last_seen_seconds === null
+                ? "never"
+                : peer.last_seen_seconds < 2
+                    ? "now"
+                    : formatDuration(peer.last_seen_seconds) + " ago";
 
             const label =
                 peer.status === "incompatible"
@@ -605,6 +654,8 @@ Station ID {{ status.station_id }} &middot; {{ status.hostname }}
 
     const updateStatus = document.getElementById("update-status");
     const updateApply = document.getElementById("update-apply");
+    const updateOverlay = document.getElementById("update-overlay");
+    let updateVersion = null;
 
     document.getElementById("update-check")
         .addEventListener("click", async () => {
@@ -621,6 +672,7 @@ Station ID {{ status.station_id }} &middot; {{ status.hostname }}
             updateStatus.textContent =
                 result.latest + " is available.";
             updateApply.textContent = "Update to " + result.latest;
+            updateVersion = result.latest;
             updateApply.hidden = false;
         } else {
             updateStatus.textContent = "Up to date.";
@@ -633,8 +685,40 @@ Station ID {{ status.station_id }} &middot; {{ status.hostname }}
         updateStatus.textContent =
             "Updating… this station will restart.";
 
-        await fetch("/api/update", { method: "POST" });
+        updateOverlay.hidden = false;
+
+        const response = await fetch("/api/update", { method: "POST" });
+        const result = await response.json();
+        if (result.error) {
+            updateOverlay.hidden = true;
+            updateStatus.textContent = result.error;
+            return;
+        }
+
+        waitForUpdate();
     });
+
+    function versionMatches(version, tag) {
+        return version === tag || version === tag.replace(/^v/, "");
+    }
+
+    async function waitForUpdate() {
+        while (true) {
+            try {
+                const response = await fetch("/api/status", { cache: "no-store" });
+                if (response.ok) {
+                    const status = await response.json();
+                    if (updateVersion && versionMatches(status.version, updateVersion)) {
+                        window.location.reload();
+                        return;
+                    }
+                }
+            } catch (error) {
+                // The expected service restart briefly makes the station unavailable.
+            }
+            await new Promise(resolve => setTimeout(resolve, 2000));
+        }
+    }
 
 </script>
 

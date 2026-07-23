@@ -10,6 +10,7 @@ heartbeats mark a peer offline.
 from __future__ import annotations
 
 import socket
+import threading
 
 from zeroconf import ServiceBrowser
 from zeroconf import ServiceInfo
@@ -55,13 +56,14 @@ class Discovery:
         self.messaging = messaging
 
         self.zeroconf: Zeroconf | None = None
+        self.info: ServiceInfo | None = None
+        self.browser: ServiceBrowser | None = None
+        self.lock = threading.RLock()
 
     def start(self) -> None:
         """
         Register this station and start browsing for peers.
         """
-
-        self.zeroconf = Zeroconf()
 
         address = _local_ip()
 
@@ -84,13 +86,40 @@ class Discovery:
 
         )
 
-        self.zeroconf.register_service(info)
+        with self.lock:
 
-        ServiceBrowser(self.zeroconf, MDNS_SERVICE_TYPE, self)
+            if self.zeroconf is not None:
+                return
+
+            self.zeroconf = Zeroconf()
+            self.zeroconf.register_service(info)
+            self.info = info
+            self.browser = ServiceBrowser(self.zeroconf, MDNS_SERVICE_TYPE, self)
 
         self.app.logger.info(
             "Discovery started (%s on %s)", self.app.station_id, address
         )
+
+    def restart(self) -> None:
+        """Re-register mDNS after Wi-Fi obtains a new network interface."""
+        self.stop()
+        self.start()
+
+    def stop(self) -> None:
+        """Release mDNS resources before recreating them on a new interface."""
+        with self.lock:
+            if self.browser is not None:
+                self.browser.cancel()
+                self.browser = None
+            if self.zeroconf is not None and self.info is not None:
+                try:
+                    self.zeroconf.unregister_service(self.info)
+                except Exception:
+                    pass
+            if self.zeroconf is not None:
+                self.zeroconf.close()
+            self.info = None
+            self.zeroconf = None
 
     #
     # ServiceBrowser listener interface

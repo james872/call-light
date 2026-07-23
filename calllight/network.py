@@ -37,6 +37,15 @@ class NetworkManager:
                 return device
         raise RuntimeError("No Wi-Fi device was found")
 
+    def local_ip(self) -> str | None:
+        """Return the current Wi-Fi IPv4 address, if the interface is online."""
+        try:
+            device = self._wifi_device()
+            address = self._run("IP4.ADDRESS", "device", "show", device)
+            return address.split("/", 1)[0] if address else None
+        except (OSError, subprocess.SubprocessError, RuntimeError):
+            return None
+
     def snapshot(self) -> dict:
         """Return Wi-Fi profiles and the active connection's IPv4 details."""
         try:
