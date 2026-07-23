@@ -175,6 +175,12 @@
 </tbody>
 </table>
 
+<h2>Event log</h2>
+
+<ul id="events">
+<li>No events yet.</li>
+</ul>
+
 <h2>Wi-Fi</h2>
 
 <p id="network-status" class="muted">Loading&hellip;</p>
@@ -212,12 +218,6 @@
 <span id="reboot-status"></span>
 
 <p><button id="setup-mode-start">Start setup mode</button></p>
-
-<h2>Event log</h2>
-
-<ul id="events">
-<li>No events yet.</li>
-</ul>
 
 <h2>Settings</h2>
 
@@ -357,7 +357,7 @@ Station ID {{ status.station_id }} &middot; {{ status.hostname }}
             return;
         }
 
-        list.innerHTML = events.slice(0, 50).map(event => {
+        list.innerHTML = events.slice(0, 10).map(event => {
             const time = new Date(event.timestamp * 1000)
                 .toLocaleTimeString();
 
@@ -491,7 +491,7 @@ Station ID {{ status.station_id }} &middot; {{ status.hostname }}
 
         if (result.changed.display_name) {
             const rebootNow = confirm(
-                "The station hostname will be fully applied after a reboot. Reboot now?"
+                "Reboot the station for this change to take effect. Reboot now?"
             );
             if (rebootNow) {
                 await requestReboot();
