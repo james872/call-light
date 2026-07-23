@@ -375,6 +375,8 @@ class CallLight:
 
             }
 
+        return status
+
     def update_settings(
         self,
         display_name: str | None = None,
@@ -483,6 +485,8 @@ class CallLight:
 
             return
 
+        hostnamectl_succeeded = False
+
         try:
 
             subprocess.run(
@@ -491,32 +495,33 @@ class CallLight:
                 timeout=10,
                 check=True,
             )
+            hostnamectl_succeeded = True
 
-        except (subprocess.SubprocessError, OSError):
+        except (subprocess.SubprocessError, OSError) as error:
 
-            #
-            # No hostnamectl (or no dbus). Fall back to the
-            # classic mechanism.
-            #
+            self.logger.info(
+                "hostnamectl unavailable; using classic hostname files: %s",
+                error,
+            )
 
-            try:
-
-                Path("/etc/hostname").write_text(hostname + "\n")
-
-                subprocess.run(
-                    ["hostname", hostname],
-                    capture_output=True,
-                    timeout=10,
-                    check=True,
-                )
-
-            except (subprocess.SubprocessError, OSError) as error:
-
-                self.logger.warning(
-                    "Could not change hostname: %s", error
-                )
-
+        # hostnamectl normally writes this file, but keeping it explicit makes
+        # the configured hostname survive a reboot even on minimal Pi images.
+        try:
+            Path("/etc/hostname").write_text(hostname + "\n")
+        except OSError as error:
+            self.logger.warning("Could not write /etc/hostname: %s", error)
+            if not hostnamectl_succeeded:
                 return
+
+        try:
+            subprocess.run(
+                ["hostname", hostname],
+                capture_output=True,
+                timeout=10,
+                check=True,
+            )
+        except (subprocess.SubprocessError, OSError) as error:
+            self.logger.warning("Could not apply hostname immediately: %s", error)
 
         #
         # Keep /etc/hosts resolving the new name.

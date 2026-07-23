@@ -130,7 +130,7 @@
 <div>
 <h2>Update in progress</h2>
 <p>The station is installing the update and will restart.</p>
-<p>This page will refresh when completion is detected.</p>
+<p>This page will refresh when once complete.</p>
 </div>
 </div>
 
@@ -684,6 +684,12 @@ Station ID {{ status.station_id }} &middot; {{ status.hostname }}
     });
 
     updateApply.addEventListener("click", async () => {
+
+        if (!confirm(
+            "Are you sure you want to update this station? It will be offline while the update installs and will restart automatically once complete."
+        )) {
+            return;
+        }
 
         updateApply.hidden = true;
         updateStatus.textContent =
