@@ -116,6 +116,10 @@
             background: #222;
         }
 
+        #update-overlay[hidden] {
+            display: none;
+        }
+
     </style>
 
 </head>
@@ -328,7 +332,7 @@ Station ID {{ status.station_id }} &middot; {{ status.hostname }}
         body.innerHTML = peers.map(peer => {
             const seen = peer.last_seen_seconds === null
                 ? "never"
-                : peer.last_seen_seconds < 2
+                : peer.last_seen_seconds < 5
                     ? "now"
                     : formatDuration(peer.last_seen_seconds) + " ago";
 
