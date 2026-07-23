@@ -189,7 +189,6 @@ class NetworkManager:
             ["nmcli", "connection", "modify", name,
              "802-11-wireless.mode", "ap",
              "802-11-wireless.band", "bg",
-             "802-11-wireless-security.key-mgmt", "none",
              "ipv4.method", "shared",
              "ipv4.addresses", "192.168.2.1/24",
              "ipv6.method", "disabled",
