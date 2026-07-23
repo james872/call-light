@@ -53,7 +53,10 @@ set_default_hostname() {
 echo "Call Light: installing system packages"
 
 apt-get update
-apt-get install -y git python3-venv python3-pip
+# gpiozero needs a pin factory to access the physical header.  Raspberry Pi OS
+# supplies lgpio as a system package, so the virtual environment below is
+# deliberately allowed to see system site packages.
+apt-get install -y git python3-venv python3-pip python3-lgpio
 
 echo "Call Light: cloning ${REPO}"
 
@@ -78,7 +81,7 @@ fi
 
 echo "Call Light: installing Python dependencies"
 
-python3 -m venv venv
+python3 -m venv --system-site-packages venv
 venv/bin/pip install --upgrade pip --retries 10 --timeout 60
 venv/bin/pip install -r requirements.txt --prefer-binary --retries 10 --timeout 60
 
