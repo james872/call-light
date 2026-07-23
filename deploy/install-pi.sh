@@ -104,7 +104,8 @@ fi
 
 install -m 0644 "${TARGET}/deploy/call-light.service" /etc/systemd/system/call-light.service
 systemctl daemon-reload
-systemctl enable --now call-light.service
+systemctl enable call-light.service
+systemctl restart call-light.service
 
 echo
 echo "Call Light is running. Open http://$(hostname -I | awk '{print $1}'):8080"
