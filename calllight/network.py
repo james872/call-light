@@ -139,6 +139,22 @@ class NetworkManager:
         )
         self._check(result)
 
+    def has_known_networks(self) -> bool:
+        """Whether a normal saved Wi-Fi profile exists for boot auto-connect."""
+        return bool(self._profiles())
+
+    def stop_setup_hotspot(self) -> None:
+        """Remove the temporary AP and allow normal Wi-Fi auto-connect again."""
+        name = "call-light-setup"
+        subprocess.run(
+            ["nmcli", "connection", "down", "id", name],
+            capture_output=True, text=True, timeout=30,
+        )
+        subprocess.run(
+            ["nmcli", "connection", "delete", "id", name],
+            capture_output=True, text=True, timeout=30,
+        )
+
     def _profiles(self) -> list[dict]:
         """Known Wi-Fi profiles ordered by NetworkManager auto-connect rank."""
         profiles = []

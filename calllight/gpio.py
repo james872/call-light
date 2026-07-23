@@ -31,6 +31,7 @@ class Gpio:
         self.led_on = False
         self.setup_window_seconds = 60
         self.setup_hold_seconds = 10
+        self.cancel_hold_seconds = 10
 
     def start(self) -> None:
         """
@@ -66,7 +67,7 @@ class Gpio:
 
             return
 
-        self.button.when_pressed = lambda: self.app.press("button")
+        self.button.when_pressed = self._on_button_pressed
 
         threading.Thread(
             target=self._watch_for_setup_mode,
@@ -110,6 +111,14 @@ class Gpio:
 
     def _watch_for_setup_mode(self) -> None:
         """Accept a deliberate ten-second button hold only just after boot."""
+        try:
+            if self.app.network is not None and not self.app.network.has_known_networks():
+                self.app.logger.info("No saved Wi-Fi networks; entering setup mode")
+                self.app.enter_setup_mode()
+                return
+        except Exception as error:
+            self.app.logger.warning("Could not check saved Wi-Fi networks: %s", error)
+
         deadline = time.monotonic() + self.setup_window_seconds
         held_since = None
 
@@ -129,6 +138,30 @@ class Gpio:
                 held_since = None
 
             time.sleep(0.05)
+
+    def _on_button_pressed(self) -> None:
+        """Use a hold to leave setup mode; normal mode remains a call toggle."""
+        if not self.app.setup_mode:
+            self.app.press("button")
+            return
+
+        def cancel_when_held() -> None:
+            started = time.monotonic()
+            while time.monotonic() - started < self.cancel_hold_seconds:
+                try:
+                    if not self.button.is_pressed:
+                        return
+                except Exception as error:
+                    self.error = str(error)
+                    return
+                time.sleep(0.05)
+            self.app.exit_setup_mode()
+
+        threading.Thread(
+            target=cancel_when_held,
+            name="setup-mode-cancel-watchdog",
+            daemon=True,
+        ).start()
 
     def _flash_loop(self) -> None:
 

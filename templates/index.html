@@ -254,6 +254,13 @@ Station ID {{ status.station_id }} &middot; {{ status.hostname }}
         document.getElementById("state").textContent = state;
     }
 
+    function formatUptime(seconds) {
+        if (seconds < 60) return seconds + " s";
+        const minutes = Math.floor(seconds / 60);
+        const remainder = seconds % 60;
+        return minutes + " min" + (remainder ? " " + remainder + " s" : "");
+    }
+
     function renderName(name) {
         document.querySelector("h1").textContent = name;
         document.title = "Call Light - " + name;
@@ -325,7 +332,7 @@ Station ID {{ status.station_id }} &middot; {{ status.hostname }}
                 overview.status.online_peer_count;
 
             document.getElementById("uptime").textContent =
-                overview.status.uptime + " s";
+                formatUptime(overview.status.uptime);
 
             renderGpio(overview.status.gpio);
             renderSetupMode(overview.status);

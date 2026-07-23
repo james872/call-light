@@ -622,6 +622,29 @@ class CallLight:
         threading.Thread(target=start_hotspot, name="setup-hotspot", daemon=True).start()
         return ssid
 
+    def exit_setup_mode(self) -> None:
+        """Leave setup mode, restore normal Wi-Fi behaviour, and restart."""
+        with self.lock:
+            if not self.setup_mode:
+                return
+            self.setup_mode = False
+
+        self.logger.info("Leaving setup mode and restarting service")
+
+        def stop_hotspot_and_restart() -> None:
+            try:
+                if self.network is not None:
+                    self.network.stop_setup_hotspot()
+            except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+                self.logger.warning("Could not stop setup hotspot: %s", error)
+            subprocess.Popen(["systemctl", "restart", "call-light.service"])
+
+        threading.Thread(
+            target=stop_hotspot_and_restart,
+            name="setup-mode-exit",
+            daemon=True,
+        ).start()
+
     #
     # Status
     #
