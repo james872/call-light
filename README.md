@@ -1,146 +1,93 @@
 # Call Light
 
-A distributed Raspberry Pi based call-light system for live musicians.
+Call Light is a peer-to-peer visual call system for live musicians. Each
+Station is a Raspberry Pi with a momentary button and LED; there is no master
+controller. A press starts or clears the shared Call on every Station.
 
-The project provides a simple, reliable visual indication that any performer on stage can trigger with a momentary pushbutton.
+## Production deployment
 
-Every station is identical.
+The production image is the primary deployment method.
 
-There is **no master controller**.
+**Download the production image:** [ADD DOWNLOAD LINK HERE](ADD-PRODUCTION-IMAGE-DOWNLOAD-LINK)
 
-Each node automatically discovers every other node on the local network and communicates using peer-to-peer messaging.
+### What you need
 
----
+- A Raspberry Pi Zero W (or compatible Raspberry Pi)
+- A **minimum 4 GB** microSD card
+- A momentary pushbutton connected between BCM GPIO 17 and ground
+- An LED and suitable current-limiting resistor connected to BCM GPIO 27
+- 5 V USB power
 
-## Features
+### First-run deployment from the image
 
-- Raspberry Pi Zero W compatible
-- Raspberry Pi OS Lite
-- Peer-to-peer architecture
-- No central server
-- Automatic node discovery using mDNS (Zeroconf)
-- Full-mesh messaging (every station talks directly to every peer)
-- Versioned call state with automatic convergence via heartbeats
-- Protocol version checking (incompatible peers are flagged, not silently broken)
-- GPIO pushbutton input
-- GPIO LED output
-- Flask web interface with live status, peer health, and a virtual call button
-- Per-station settings from the web UI: station name (synced to the machine hostname), flash rate, LED brightness
-- Time-stamped event log of calls and clears, including originating station
-- Per-station update button in the web UI (pulls the latest GitHub release)
-- Heartbeats
-- Automatic installation
-- systemd service
-- GitHub-based deployment
-- Headless installation using Raspberry Pi Imager
+1. Flash the Call Light `1.0.0` production image to the microSD card.
+2. Insert the card and power the Station.
+3. The factory configuration uses the station name `default` and contains no
+   saved Wi-Fi networks, so the Station enters setup mode automatically.
+4. Connect a phone or computer to the open Wi-Fi network named
+   `call-<last-six-hex-digits-of-the-wlan0-MAC>`.
+5. Open [http://192.168.2.1:8080](http://192.168.2.1:8080).
+6. Save the venue Wi-Fi network, set the station name, then reboot the
+   Station. It joins the highest-priority saved Wi-Fi network that it finds.
 
----
+Setup mode is indicated by three short LED flashes followed by a pause. Hold
+the physical button for 10 seconds while in setup mode to leave it and restart
+the Station.
 
-## Hardware
+The image must be built from the release tag, include the Call Light service,
+and contain no saved NetworkManager Wi-Fi profiles. The first boot generates
+the Station ID; no Internet access is needed for normal operation.
 
-Each node requires
+## Using the Web UI
 
-- Raspberry Pi Zero W
-- MicroSD card
-- Momentary pushbutton
-- LED
-- Current limiting resistor
-- 5V USB power
+Open the Station's IP address on port 8080 from a device on the same network.
+The Web UI provides:
 
----
+- Call/Clear control and live Station status
+- Station list, peer health, and the latest 10 events
+- Station name, LED brightness, and flash-rate settings
+- Saved Wi-Fi networks, order, and current network details
+- Setup mode and reboot controls
+- Per-Station software update checks
 
-## Network
+Changing a Station name prompts for a reboot. Rebooting applies the configured
+name to the Pi hostname and ensures subsequent event and peer messages use the
+new name.
 
-Nodes communicate over WiFi.
+## Updates
 
-No Internet access is required after installation.
+Each Station checks GitHub for newer release tags. In the Web UI select
+**Check for updates**, then **Update**. The Station is temporarily offline
+while it installs the release and restarts automatically.
 
-Discovery is performed using mDNS.
+Release tags and the root `VERSION` file must match exactly. Never move an
+already-pushed tag; create a new version tag for each release.
 
-Messaging is performed using ZeroMQ.
+## Recovery or developer installation
 
----
-
-## Project Status
-
-Current Version
-
-0.1.0
-
-Current Milestone
-
-Bootstrap
-
----
-
-## Roadmap
-
-- Bootstrap
-- Web UI
-- Discovery
-- Messaging
-- GPIO
-- Diagnostics
-- Release 1.0
-
----
-
-## Installation
-
-Deployment is designed for Raspberry Pi Imager.
-
-1. Flash Raspberry Pi OS Lite.
-2. Configure hostname and WiFi.
-3. Configure the first-boot script.
-4. Boot the Pi.
-5. Installation completes automatically.
-
-The first-boot script clones this repository, checks out the newest
-release tag, installs dependencies, generates the station's identity,
-and installs the systemd service. Internet access is required during
-installation only.
-
-### Install on an already-booted Raspberry Pi
-
-Connect the Pi to WiFi, then run the following command in its terminal:
+If a Station has Internet access, install or repair it from a terminal with:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/james872/call-light/main/deploy/install-pi.sh | sudo bash
 ```
 
-The installer is safe to run again. It installs Git and Python, clones or
-updates `/opt/call-light`, creates its Python environment, preserves an
-existing station configuration, and starts the `call-light` systemd service.
-It deploys the newest release tag; while there are no release tags it deploys
-`main` so the project can be tested. To explicitly test a branch, tag, or
-commit, run `sudo CALL_LIGHT_REF=your-ref ./deploy/install-pi.sh`.
+The installer deploys the newest release tag and restarts
+`call-light.service`. Check the service and logs with:
 
-On its first install, a station is given the hostname
-`call-<last-six-hex-digits-of-wlan0-MAC>` (for example,
-`call-123456`). Re-running an installer does not overwrite a hostname that
-was later changed through the web UI.
+```bash
+systemctl status call-light.service
+journalctl -u call-light.service -f
+```
 
-If you have already cloned the repository, run `sudo ./deploy/install-pi.sh`
-from that checkout instead.
+`deploy/firstrun.sh` remains available for Raspberry Pi Imager-based online
+provisioning. It requires Wi-Fi and Internet access, so it is not used by the
+offline-ready production image.
 
-After it finishes, open `http://<pi-ip-address>:8080` from a device on the
-same WiFi. Check the service with `systemctl status call-light.service` and
-view its live logs with `journalctl -u call-light.service -f`.
+## Network behaviour
 
----
-
-## Updates
-
-Each station's web UI shows when a newer release is available
-(internet permitting). The Update button updates that station only:
-fetch, check out the newest release tag, reinstall dependencies,
-restart the service.
-
-Stations running an older protocol version appear on their peers as
-"incompatible — update required", so partial upgrades are visible
-rather than silently broken.
-
----
+Stations use mDNS discovery and direct ZeroMQ messaging on the same Wi-Fi LAN.
+Heartbeats repair missed events and identify offline peers. When Wi-Fi
+reconnects, the Station re-registers discovery so the mesh can reform.
 
 ## License
 

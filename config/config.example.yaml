@@ -1,4 +1,4 @@
-display_name: Drums
+display_name: default
 
 button_gpio: 17
 led_gpio: 27
