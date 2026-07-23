@@ -123,6 +123,26 @@ def create_web_app(calllight, network: NetworkManager | None = None) -> Flask:
             return jsonify({"error": str(error)}), 400
         return jsonify(network.snapshot())
 
+    @app.route("/api/network", methods=["PUT"])
+    def api_network_add():
+
+        body = request.get_json(silent=True) or {}
+        try:
+            network.add(body.get("ssid", ""), body.get("password"))
+        except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as error:
+            return jsonify({"error": str(error)}), 400
+        return jsonify(network.snapshot())
+
+    @app.route("/api/network/<uuid>/order", methods=["POST"])
+    def api_network_reorder(uuid: str):
+
+        body = request.get_json(silent=True) or {}
+        try:
+            network.reorder(uuid, body.get("direction", ""))
+        except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as error:
+            return jsonify({"error": str(error)}), 400
+        return jsonify(network.snapshot())
+
     @app.route("/api/network/<uuid>", methods=["DELETE"])
     def api_network_delete(uuid: str):
 
@@ -137,6 +157,22 @@ def create_web_app(calllight, network: NetworkManager | None = None) -> Flask:
 
         subprocess.Popen(["systemctl", "reboot"])
         return jsonify({"status": "rebooting"})
+
+    @app.route("/api/setup")
+    def api_setup_info():
+
+        try:
+            return jsonify({"ssid": network.setup_ssid(), "url": "http://192.168.2.1:8080"})
+        except RuntimeError as error:
+            return jsonify({"error": str(error)}), 400
+
+    @app.route("/api/setup", methods=["POST"])
+    def api_setup_start():
+
+        try:
+            return jsonify({"status": "starting", "ssid": calllight.enter_setup_mode()})
+        except RuntimeError as error:
+            return jsonify({"error": str(error)}), 400
 
     @app.route("/health")
     def health():

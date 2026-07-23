@@ -596,19 +596,21 @@ class CallLight:
 
             return list(reversed(self.events))
 
-    def enter_setup_mode(self) -> None:
+    def enter_setup_mode(self) -> str:
         """Start the temporary local Wi-Fi setup network once per boot."""
         with self.lock:
             if self.setup_mode:
-                return
+                return self.setup_ssid or ""
+            if self.network is None:
+                raise RuntimeError("Network manager is unavailable")
+            ssid = self.network.setup_ssid()
             self.setup_mode = True
+            self.setup_ssid = ssid
 
         self.logger.info("Entering setup mode")
 
         def start_hotspot() -> None:
             try:
-                if self.network is None:
-                    raise RuntimeError("Network manager is unavailable")
                 self.setup_ssid = self.network.start_setup_hotspot()
                 self.logger.info(
                     "Setup hotspot %s started at http://192.168.2.1:8080",
@@ -618,6 +620,7 @@ class CallLight:
                 self.logger.warning("Could not start setup hotspot: %s", error)
 
         threading.Thread(target=start_hotspot, name="setup-hotspot", daemon=True).start()
+        return ssid
 
     #
     # Status

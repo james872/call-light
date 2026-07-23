@@ -23,6 +23,13 @@ class NetworkManager:
         )
         return result.stdout.strip()
 
+    @staticmethod
+    def _check(result: subprocess.CompletedProcess) -> None:
+        """Raise a user-meaningful error when NetworkManager rejects a command."""
+        if result.returncode:
+            detail = result.stderr.strip() or result.stdout.strip()
+            raise RuntimeError(detail or "NetworkManager command failed")
+
     def _wifi_device(self) -> str:
         for line in self._run("DEVICE,TYPE", "device", "status").splitlines():
             device, _, kind = line.rpartition(":")
@@ -34,13 +41,10 @@ class NetworkManager:
         """Return Wi-Fi profiles and the active connection's IPv4 details."""
         try:
             device = self._wifi_device()
-            known = []
-            profiles = self._run("NAME,UUID,TYPE", "connection", "show")
+            known = self._profiles()
             active_uuid = self._run("GENERAL.CON-UUID", "device", "show", device)
-            for line in profiles.splitlines():
-                name, uuid, kind = line.rsplit(":", 2)
-                if kind == "802-11-wireless":
-                    known.append({"ssid": name, "uuid": uuid, "active": uuid == active_uuid})
+            for profile in known:
+                profile["active"] = profile["uuid"] == active_uuid
             raw_address = self._run("IP4.ADDRESS", "device", "show", device)
             address = raw_address.split("/", 1)[0] if raw_address else None
             prefix = raw_address.split("/", 1)[1] if "/" in raw_address else None
@@ -52,7 +56,7 @@ class NetworkManager:
                 "ip_address": address,
                 "gateway": self._run("IP4.GATEWAY", "device", "show", device) or None,
                 "subnet": subnet,
-            }, "known": sorted(known, key=lambda item: item["ssid"].lower())}
+            }, "known": known}
         except (OSError, subprocess.SubprocessError, RuntimeError, ValueError) as error:
             self.logger.warning("Could not read Wi-Fi status: %s", error)
             return {"available": False, "error": str(error), "current": {}, "known": []}
@@ -66,14 +70,90 @@ class NetworkManager:
         command = ["nmcli", "device", "wifi", "connect", ssid, "ifname", self._wifi_device()]
         if password:
             command.extend(["password", password])
-        subprocess.run(command, capture_output=True, text=True, timeout=60, check=True)
+        result = subprocess.run(
+            command, capture_output=True, text=True, timeout=60,
+        )
+        self._check(result)
+
+    def add(self, ssid: str, password: str | None) -> None:
+        """Save a network profile without attempting to join it."""
+        ssid = "" if ssid is None else str(ssid).strip()
+        if not ssid or len(ssid) > 32:
+            raise ValueError("Wi-Fi name must be between 1 and 32 characters")
+        if password is not None and password and not 8 <= len(password) <= 63:
+            raise ValueError("Wi-Fi password must be 8 to 63 characters")
+
+        for profile in self._profiles():
+            if profile["ssid"] == ssid:
+                raise ValueError("This Wi-Fi network is already saved")
+
+        priority = max((item["priority"] for item in self._profiles()), default=0) + 10
+        device = self._wifi_device()
+        result = subprocess.run(
+            ["nmcli", "connection", "add", "type", "wifi", "ifname", device,
+             "con-name", ssid, "ssid", ssid],
+            capture_output=True, text=True, timeout=30,
+        )
+        self._check(result)
+        command = ["nmcli", "connection", "modify", "id", ssid,
+                   "connection.autoconnect", "yes",
+                   "connection.autoconnect-priority", str(priority)]
+        if password:
+            command.extend([
+                "802-11-wireless-security.key-mgmt", "wpa-psk",
+                "802-11-wireless-security.psk", password,
+            ])
+        else:
+            command.extend(["802-11-wireless-security.key-mgmt", "none"])
+        result = subprocess.run(command, capture_output=True, text=True, timeout=30)
+        self._check(result)
+
+    def reorder(self, uuid: str, direction: str) -> None:
+        """Swap one saved profile with its neighbour in auto-connect order."""
+        profiles = self._profiles()
+        index = next((i for i, item in enumerate(profiles) if item["uuid"] == uuid), None)
+        if index is None:
+            raise ValueError("Saved Wi-Fi network was not found")
+        offset = -1 if direction == "up" else 1 if direction == "down" else None
+        if offset is None or not 0 <= index + offset < len(profiles):
+            raise ValueError("Network cannot be moved in that direction")
+        profiles[index], profiles[index + offset] = profiles[index + offset], profiles[index]
+        # Re-number every profile so a move remains effective even when older
+        # NetworkManager profiles all started with priority zero.
+        for position, item in enumerate(profiles):
+            priority = (len(profiles) - position) * 10
+            result = subprocess.run(
+                ["nmcli", "connection", "modify", "uuid", item["uuid"],
+                 "connection.autoconnect-priority", str(priority)],
+                capture_output=True, text=True, timeout=30,
+            )
+            self._check(result)
 
     def delete(self, uuid: str) -> None:
         uuid = str(uuid).strip()
         if not uuid:
             raise ValueError("Missing Wi-Fi profile identifier")
-        subprocess.run(["nmcli", "connection", "delete", "uuid", uuid],
-                       capture_output=True, text=True, timeout=30, check=True)
+        result = subprocess.run(
+            ["nmcli", "connection", "delete", "uuid", uuid],
+            capture_output=True, text=True, timeout=30,
+        )
+        self._check(result)
+
+    def _profiles(self) -> list[dict]:
+        """Known Wi-Fi profiles ordered by NetworkManager auto-connect rank."""
+        profiles = []
+        for line in self._run("NAME,UUID,TYPE", "connection", "show").splitlines():
+            name, uuid, kind = line.rsplit(":", 2)
+            if kind != "802-11-wireless" or name == "call-light-setup":
+                continue
+            priority = self._run("connection.autoconnect-priority", "connection", "show", "uuid", uuid)
+            profiles.append({
+                "ssid": self._run("802-11-wireless.ssid", "connection", "show", "uuid", uuid) or name,
+                "uuid": uuid,
+                "priority": int(priority or 0),
+                "active": False,
+            })
+        return sorted(profiles, key=lambda item: (-item["priority"], item["ssid"].lower()))
 
     def setup_ssid(self) -> str:
         """Return the stable setup-network name derived from wlan0's MAC."""

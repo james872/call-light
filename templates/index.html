@@ -159,13 +159,16 @@
 <p>
 <label>Password <span class="muted">(leave blank for an open network)</span><br><input id="wifi-password" type="password" maxlength="63" autocomplete="new-password"></label>
 </p>
-<button id="wifi-connect">Connect</button>
+<button id="wifi-save">Save network</button>
+<button id="wifi-connect">Connect now</button>
 <span id="wifi-action-status"></span>
 
 <h2>System</h2>
 
 <button id="reboot" class="danger">Reboot station</button>
 <span id="reboot-status"></span>
+
+<p><button id="setup-mode-start">Start setup mode</button></p>
 
 <h2>Stations</h2>
 
@@ -451,6 +454,12 @@ Station ID {{ status.station_id }} &middot; {{ status.hostname }}
         return value || "—";
     }
 
+    function escapeHtml(value) {
+        const element = document.createElement("div");
+        element.textContent = value;
+        return element.innerHTML;
+    }
+
     function renderNetwork(network) {
         if (!network.available) {
             networkStatus.className = "error";
@@ -462,22 +471,31 @@ Station ID {{ status.station_id }} &middot; {{ status.hostname }}
         networkStatus.textContent = "Wi-Fi device: " + network.device;
         const current = network.current;
         document.getElementById("network-current").innerHTML =
-            "<tr><td>Current network</td><td>" + valueOrDash(current.ssid) + "</td></tr>"
-            + "<tr><td>IP address</td><td>" + valueOrDash(current.ip_address) + "</td></tr>"
-            + "<tr><td>Gateway</td><td>" + valueOrDash(current.gateway) + "</td></tr>"
-            + "<tr><td>Subnet</td><td>" + valueOrDash(current.subnet) + "</td></tr>";
+            "<tr><td>Current network</td><td>" + escapeHtml(valueOrDash(current.ssid)) + "</td></tr>"
+            + "<tr><td>IP address</td><td>" + escapeHtml(valueOrDash(current.ip_address)) + "</td></tr>"
+            + "<tr><td>Gateway</td><td>" + escapeHtml(valueOrDash(current.gateway)) + "</td></tr>"
+            + "<tr><td>Subnet</td><td>" + escapeHtml(valueOrDash(current.subnet)) + "</td></tr>";
 
         const known = document.getElementById("network-known");
         if (network.known.length === 0) {
             known.innerHTML = "<tr><td colspan='3'>No saved Wi-Fi networks.</td></tr>";
             return;
         }
-        known.innerHTML = network.known.map(item => "<tr><td>" + item.ssid
+        known.innerHTML = network.known.map((item, index) => "<tr><td>" + escapeHtml(item.ssid)
             + "</td><td>" + (item.active ? "connected" : "saved")
-            + "</td><td><button class='wifi-delete' data-uuid='" + item.uuid
-            + "'>Delete</button></td></tr>").join("");
+            + "</td><td><button class='wifi-up' data-uuid='" + item.uuid + "' "
+            + (index === 0 ? "disabled" : "") + ">↑</button> "
+            + "<button class='wifi-down' data-uuid='" + item.uuid + "' "
+            + (index === network.known.length - 1 ? "disabled" : "") + ">↓</button> "
+            + "<button class='wifi-delete' data-uuid='" + item.uuid + "'>Delete</button></td></tr>").join("");
         document.querySelectorAll(".wifi-delete").forEach(button => {
             button.addEventListener("click", () => deleteNetwork(button.dataset.uuid));
+        });
+        document.querySelectorAll(".wifi-up").forEach(button => {
+            button.addEventListener("click", () => reorderNetwork(button.dataset.uuid, "up"));
+        });
+        document.querySelectorAll(".wifi-down").forEach(button => {
+            button.addEventListener("click", () => reorderNetwork(button.dataset.uuid, "down"));
         });
     }
 
@@ -500,11 +518,26 @@ Station ID {{ status.station_id }} &middot; {{ status.hostname }}
         }
     }
 
-    document.getElementById("wifi-connect").addEventListener("click", async () => {
-        wifiActionStatus.className = "";
-        wifiActionStatus.textContent = "Connecting…";
-        const response = await fetch("/api/network", {
+    async function reorderNetwork(uuid, direction) {
+        const response = await fetch("/api/network/" + encodeURIComponent(uuid) + "/order", {
             method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ direction }),
+        });
+        const result = await response.json();
+        if (result.error) {
+            wifiActionStatus.className = "error";
+            wifiActionStatus.textContent = result.error;
+        } else {
+            renderNetwork(result);
+        }
+    }
+
+    async function sendNetwork(method, progress) {
+        wifiActionStatus.className = "";
+        wifiActionStatus.textContent = progress;
+        const response = await fetch("/api/network", {
+            method,
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
                 ssid: document.getElementById("wifi-ssid").value,
@@ -516,9 +549,17 @@ Station ID {{ status.station_id }} &middot; {{ status.hostname }}
             wifiActionStatus.className = "error";
             wifiActionStatus.textContent = result.error;
         } else {
-            wifiActionStatus.textContent = "Connected.";
+            wifiActionStatus.textContent = method === "PUT" ? "Network saved." : "Connected.";
             renderNetwork(result);
         }
+    }
+
+    document.getElementById("wifi-connect").addEventListener("click", async () => {
+        await sendNetwork("POST", "Connecting…");
+    });
+
+    document.getElementById("wifi-save").addEventListener("click", async () => {
+        await sendNetwork("PUT", "Saving…");
     });
 
     loadNetwork();
@@ -536,6 +577,19 @@ Station ID {{ status.station_id }} &middot; {{ status.hostname }}
         if (confirm("Reboot this station now? The web page will disconnect.")) {
             await requestReboot();
         }
+    });
+
+    document.getElementById("setup-mode-start").addEventListener("click", async () => {
+        const info = await (await fetch("/api/setup")).json();
+        if (info.error) {
+            alert(info.error);
+            return;
+        }
+        const message = "Warning: this will disconnect from the current network and broadcast a setup network. "
+            + "Connect to the network \"" + info.ssid + "\" using " + info.url + " to set up.";
+        if (!confirm(message)) return;
+        const result = await (await fetch("/api/setup", { method: "POST" })).json();
+        if (result.error) alert(result.error);
     });
 
     //
