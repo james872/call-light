@@ -8,12 +8,15 @@ from .application import CallLight
 from .discovery import Discovery
 from .gpio import Gpio
 from .messaging import Messaging
+from .network import NetworkManager
 from .webui import create_web_app
 
 
 def main() -> None:
 
     calllight = CallLight()
+    network = NetworkManager(calllight.logger)
+    calllight.network = network
 
     messaging = Messaging(calllight)
     messaging.start()
@@ -22,9 +25,10 @@ def main() -> None:
     discovery.start()
 
     gpio = Gpio(calllight)
+    calllight.gpio = gpio
     gpio.start()
 
-    web = create_web_app(calllight)
+    web = create_web_app(calllight, network)
 
     calllight.logger.info(
         "Starting web server on port %s",

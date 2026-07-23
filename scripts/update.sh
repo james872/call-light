@@ -27,7 +27,7 @@ git checkout --quiet "${LATEST}"
 # Keep update installs consistent with first-boot installs. gpiozero uses the
 # Raspberry Pi OS lgpio package to access the physical GPIO header.
 apt-get update
-apt-get install -y python3-lgpio
+apt-get install -y python3-lgpio dnsmasq-base
 sed -i 's/^include-system-site-packages = false$/include-system-site-packages = true/' venv/pyvenv.cfg
 
 venv/bin/pip install -r requirements.txt --prefer-binary --retries 10 --timeout 60

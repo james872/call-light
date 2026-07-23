@@ -79,6 +79,17 @@
             color: #666;
         }
 
+        .error { color: #c62828; }
+        .muted { color: #666; font-size: 0.9em; }
+        #setup-mode {
+            background: #fff3cd;
+            border: 1px solid #ffda6a;
+            padding: 12px;
+            border-radius: 6px;
+        }
+        button.danger { color: #b71c1c; }
+        input { max-width: 100%; box-sizing: border-box; }
+
         footer {
             margin-top: 28px;
             color: #999;
@@ -92,6 +103,8 @@
 <body>
 
 <h1>{{ status.display_name }}</h1>
+
+<p id="setup-mode" hidden></p>
 
 <button id="press">&hellip;</button>
 
@@ -112,7 +125,47 @@
 <td id="uptime">{{ status.uptime }} s</td>
 </tr>
 
+<tr>
+<td>GPIO</td>
+<td id="gpio-status">Checking&hellip;</td>
+</tr>
+
 </table>
+
+<h2>Wi-Fi</h2>
+
+<p id="network-status" class="muted">Loading&hellip;</p>
+
+<table>
+<tbody id="network-current">
+<tr><td colspan="2">Loading&hellip;</td></tr>
+</tbody>
+</table>
+
+<h3>Known networks</h3>
+
+<table>
+<thead><tr><th>Network</th><th>State</th><th></th></tr></thead>
+<tbody id="network-known">
+<tr><td colspan="3">Loading&hellip;</td></tr>
+</tbody>
+</table>
+
+<h3>Add or join network</h3>
+
+<p>
+<label>Wi-Fi name<br><input id="wifi-ssid" type="text" maxlength="32" autocomplete="off"></label>
+</p>
+<p>
+<label>Password <span class="muted">(leave blank for an open network)</span><br><input id="wifi-password" type="password" maxlength="63" autocomplete="new-password"></label>
+</p>
+<button id="wifi-connect">Connect</button>
+<span id="wifi-action-status"></span>
+
+<h2>System</h2>
+
+<button id="reboot" class="danger">Reboot station</button>
+<span id="reboot-status"></span>
 
 <h2>Stations</h2>
 
@@ -270,9 +323,42 @@ Station ID {{ status.station_id }} &middot; {{ status.hostname }}
 
             document.getElementById("uptime").textContent =
                 overview.status.uptime + " s";
+
+            renderGpio(overview.status.gpio);
+            renderSetupMode(overview.status);
         } catch (error) {
             // Station restarting; keep polling.
         }
+    }
+
+    function renderGpio(gpio) {
+        const target = document.getElementById("gpio-status");
+        if (!gpio) {
+            target.textContent = "Not started";
+        } else if (!gpio.available) {
+            target.textContent = "Unavailable: " + (gpio.error || "unknown error");
+            target.className = "error";
+        } else {
+            target.className = "";
+            target.textContent = "Button GPIO " + gpio.button_gpio
+                + " (" + (gpio.button_pressed ? "pressed" : "released") + ")"
+                + "; LED GPIO " + gpio.led_gpio
+                + " (" + (gpio.led_on ? "on" : "off") + ")"
+                + "; " + gpio.backend;
+        }
+    }
+
+    function renderSetupMode(status) {
+        const banner = document.getElementById("setup-mode");
+        if (!status.setup_mode) {
+            banner.hidden = true;
+            return;
+        }
+        banner.hidden = false;
+        banner.textContent = status.setup_ssid
+            ? "Setup mode active: connect to open Wi-Fi “" + status.setup_ssid
+                + "” and open http://192.168.2.1:8080. Reboot to return to normal Wi-Fi."
+            : "Setup mode is starting the open Wi-Fi network…";
     }
 
     refresh();
@@ -340,10 +426,117 @@ Station ID {{ status.station_id }} &middot; {{ status.hostname }}
                 ? "Saved."
                 : "No changes.";
 
+        if (result.changed.display_name) {
+            const rebootNow = confirm(
+                "The station hostname will be fully applied after a reboot. Reboot now?"
+            );
+            if (rebootNow) {
+                await requestReboot();
+            }
+        }
+
         setTimeout(() => { settingsStatus.textContent = ""; }, 3000);
     });
 
     loadSettings();
+
+    //
+    // Wi-Fi
+    //
+
+    const networkStatus = document.getElementById("network-status");
+    const wifiActionStatus = document.getElementById("wifi-action-status");
+
+    function valueOrDash(value) {
+        return value || "—";
+    }
+
+    function renderNetwork(network) {
+        if (!network.available) {
+            networkStatus.className = "error";
+            networkStatus.textContent = "Wi-Fi management unavailable: " + network.error;
+            return;
+        }
+
+        networkStatus.className = "muted";
+        networkStatus.textContent = "Wi-Fi device: " + network.device;
+        const current = network.current;
+        document.getElementById("network-current").innerHTML =
+            "<tr><td>Current network</td><td>" + valueOrDash(current.ssid) + "</td></tr>"
+            + "<tr><td>IP address</td><td>" + valueOrDash(current.ip_address) + "</td></tr>"
+            + "<tr><td>Gateway</td><td>" + valueOrDash(current.gateway) + "</td></tr>"
+            + "<tr><td>Subnet</td><td>" + valueOrDash(current.subnet) + "</td></tr>";
+
+        const known = document.getElementById("network-known");
+        if (network.known.length === 0) {
+            known.innerHTML = "<tr><td colspan='3'>No saved Wi-Fi networks.</td></tr>";
+            return;
+        }
+        known.innerHTML = network.known.map(item => "<tr><td>" + item.ssid
+            + "</td><td>" + (item.active ? "connected" : "saved")
+            + "</td><td><button class='wifi-delete' data-uuid='" + item.uuid
+            + "'>Delete</button></td></tr>").join("");
+        document.querySelectorAll(".wifi-delete").forEach(button => {
+            button.addEventListener("click", () => deleteNetwork(button.dataset.uuid));
+        });
+    }
+
+    async function loadNetwork() {
+        const response = await fetch("/api/network");
+        renderNetwork(await response.json());
+    }
+
+    async function deleteNetwork(uuid) {
+        if (!confirm("Delete this saved Wi-Fi network?")) return;
+        const response = await fetch("/api/network/" + encodeURIComponent(uuid), { method: "DELETE" });
+        const result = await response.json();
+        if (result.error) {
+            wifiActionStatus.className = "error";
+            wifiActionStatus.textContent = result.error;
+        } else {
+            wifiActionStatus.className = "";
+            wifiActionStatus.textContent = "Network deleted.";
+            renderNetwork(result);
+        }
+    }
+
+    document.getElementById("wifi-connect").addEventListener("click", async () => {
+        wifiActionStatus.className = "";
+        wifiActionStatus.textContent = "Connecting…";
+        const response = await fetch("/api/network", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                ssid: document.getElementById("wifi-ssid").value,
+                password: document.getElementById("wifi-password").value,
+            }),
+        });
+        const result = await response.json();
+        if (result.error) {
+            wifiActionStatus.className = "error";
+            wifiActionStatus.textContent = result.error;
+        } else {
+            wifiActionStatus.textContent = "Connected.";
+            renderNetwork(result);
+        }
+    });
+
+    loadNetwork();
+
+    //
+    // Reboot
+    //
+
+    async function requestReboot() {
+        document.getElementById("reboot-status").textContent = "Rebooting…";
+        await fetch("/api/reboot", { method: "POST" });
+    }
+
+    document.getElementById("reboot").addEventListener("click", async () => {
+        if (confirm("Reboot this station now? The web page will disconnect.")) {
+            await requestReboot();
+        }
+    });
 
     //
     // Updates

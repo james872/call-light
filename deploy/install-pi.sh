@@ -62,7 +62,7 @@ apt-get update
 # gpiozero needs a pin factory to access the physical header.  Raspberry Pi OS
 # supplies lgpio as a system package, so the virtual environment below is
 # deliberately allowed to see system site packages.
-apt-get install -y git python3-venv python3-pip python3-lgpio
+apt-get install -y git python3-venv python3-pip python3-lgpio dnsmasq-base
 
 if [ -d "${TARGET}/.git" ]; then
     echo "Call Light: updating checkout in ${TARGET}"

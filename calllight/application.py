@@ -88,6 +88,10 @@ class CallLight:
         #
 
         self.transport = None
+        self.gpio = None
+        self.network = None
+        self.setup_mode = False
+        self.setup_ssid = None
 
         self.logger.info("Starting Call Light")
 
@@ -363,7 +367,7 @@ class CallLight:
 
         with self.lock:
 
-            return {
+            status = {
 
                 "display_name": self.display_name,
                 "flash_rate_ms": self.config.flash_rate_ms,
@@ -592,6 +596,29 @@ class CallLight:
 
             return list(reversed(self.events))
 
+    def enter_setup_mode(self) -> None:
+        """Start the temporary local Wi-Fi setup network once per boot."""
+        with self.lock:
+            if self.setup_mode:
+                return
+            self.setup_mode = True
+
+        self.logger.info("Entering setup mode")
+
+        def start_hotspot() -> None:
+            try:
+                if self.network is None:
+                    raise RuntimeError("Network manager is unavailable")
+                self.setup_ssid = self.network.start_setup_hotspot()
+                self.logger.info(
+                    "Setup hotspot %s started at http://192.168.2.1:8080",
+                    self.setup_ssid,
+                )
+            except (OSError, RuntimeError, subprocess.SubprocessError) as error:
+                self.logger.warning("Could not start setup hotspot: %s", error)
+
+        threading.Thread(target=start_hotspot, name="setup-hotspot", daemon=True).start()
+
     #
     # Status
     #
@@ -605,7 +632,7 @@ class CallLight:
 
         with self.lock:
 
-            return {
+            status = {
 
                 "version": __version__,
                 "protocol_version": PROTOCOL_VERSION,
@@ -618,5 +645,12 @@ class CallLight:
                 "peer_count": len(self.peers),
                 "online_peer_count": self.online_peer_count(),
                 "running": self.running,
+                "setup_mode": self.setup_mode,
+                "setup_ssid": self.setup_ssid,
 
             }
+
+        if self.gpio is not None:
+            status["gpio"] = self.gpio.snapshot()
+
+        return status

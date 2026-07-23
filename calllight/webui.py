@@ -9,6 +9,7 @@ can raise and clear Calls like anyone on stage.
 from __future__ import annotations
 
 from pathlib import Path
+import subprocess
 
 from flask import Flask
 from flask import jsonify
@@ -16,12 +17,13 @@ from flask import render_template
 from flask import request
 
 from . import updater
+from .network import NetworkManager
 
 
 TEMPLATE_DIR = Path(__file__).resolve().parent.parent / "templates"
 
 
-def create_web_app(calllight) -> Flask:
+def create_web_app(calllight, network: NetworkManager | None = None) -> Flask:
     """
     Create the Flask application.
     """
@@ -30,6 +32,7 @@ def create_web_app(calllight) -> Flask:
         __name__,
         template_folder=str(TEMPLATE_DIR),
     )
+    network = network or NetworkManager(calllight.logger)
 
     @app.route("/")
     def index():
@@ -104,6 +107,36 @@ def create_web_app(calllight) -> Flask:
     def api_update():
 
         return jsonify(updater.start_update(calllight.logger))
+
+    @app.route("/api/network")
+    def api_network():
+
+        return jsonify(network.snapshot())
+
+    @app.route("/api/network", methods=["POST"])
+    def api_network_connect():
+
+        body = request.get_json(silent=True) or {}
+        try:
+            network.connect(body.get("ssid", ""), body.get("password"))
+        except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as error:
+            return jsonify({"error": str(error)}), 400
+        return jsonify(network.snapshot())
+
+    @app.route("/api/network/<uuid>", methods=["DELETE"])
+    def api_network_delete(uuid: str):
+
+        try:
+            network.delete(uuid)
+        except (OSError, RuntimeError, ValueError, subprocess.SubprocessError) as error:
+            return jsonify({"error": str(error)}), 400
+        return jsonify(network.snapshot())
+
+    @app.route("/api/reboot", methods=["POST"])
+    def api_reboot():
+
+        subprocess.Popen(["systemctl", "reboot"])
+        return jsonify({"status": "rebooting"})
 
     @app.route("/health")
     def health():
